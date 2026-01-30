@@ -85,11 +85,18 @@ export const Checkout: React.FC = () => {
           const cpfClean = user.cpf.replace(/\D/g, '');
           const firstName = user.name.split(' ')[0];
           const lastName = user.name.split(' ').slice(1).join(' ') || 'Cliente';
+          
+          // Ensure token doesn't duplicate "Bearer"
+          let token = gateway.credentials.accessToken.trim();
+          if (!token.startsWith('Bearer ')) {
+              token = `Bearer ${token}`;
+          }
 
-          const response = await fetch('https://api.mercadopago.com/v1/payments', {
+          // Use local API proxy to avoid CORS
+          const response = await fetch('/api/mp-payment', {
               method: 'POST',
               headers: {
-                  'Authorization': `Bearer ${gateway.credentials.accessToken}`,
+                  'Authorization': token,
                   'Content-Type': 'application/json',
                   'X-Idempotency-Key': crypto.randomUUID()
               },
@@ -113,7 +120,18 @@ export const Checkout: React.FC = () => {
 
           if (data.status === 400 || data.error) {
               console.error(data);
-              addToast(`Erro no Mercado Pago: ${data.message || 'Verifique os dados do cliente'}`, 'error');
+              addToast(`Erro no Mercado Pago: ${data.message || data.error || 'Verifique os dados'}`, 'error');
+              return;
+          }
+          
+          // Handle potential proxy errors
+          if (response.status !== 200 && response.status !== 201) {
+              addToast(`Erro (${response.status}): ${data.message || 'Falha ao criar PIX'}`, 'error');
+              return;
+          }
+
+          if (!data.point_of_interaction) {
+              addToast('Erro: Resposta inválida do Mercado Pago', 'error');
               return;
           }
 
@@ -126,7 +144,7 @@ export const Checkout: React.FC = () => {
 
       } catch (error) {
           console.error(error);
-          addToast('Erro de conexão com o gateway de pagamento.', 'error');
+          addToast('Erro de conexão com o gateway de pagamento. Verifique se o projeto está rodando em ambiente seguro (Vercel/HTTPS).', 'error');
       }
   };
 
@@ -137,10 +155,15 @@ export const Checkout: React.FC = () => {
 
       setLoading(true);
       try {
-          const response = await fetch(`https://api.mercadopago.com/v1/payments/${pixPaymentData.id}`, {
+          let token = gateway.credentials.accessToken.trim();
+          if (!token.startsWith('Bearer ')) {
+              token = `Bearer ${token}`;
+          }
+
+          const response = await fetch(`/api/mp-payment?id=${pixPaymentData.id}`, {
               method: 'GET',
               headers: {
-                  'Authorization': `Bearer ${gateway.credentials.accessToken}`
+                  'Authorization': token
               }
           });
           const data = await response.json();
@@ -150,7 +173,13 @@ export const Checkout: React.FC = () => {
               if (planId) purchasePlan(planId);
               navigate('/success');
           } else {
-              addToast(`Status atual: ${data.status_detail || data.status}`, 'info');
+              const statusMap: Record<string, string> = {
+                  pending: 'Pendente',
+                  in_process: 'Em processamento',
+                  rejected: 'Rejeitado',
+                  cancelled: 'Cancelado'
+              };
+              addToast(`Status atual: ${statusMap[data.status] || data.status}`, 'info');
           }
       } catch (error) {
           addToast('Erro ao verificar status.', 'error');
@@ -175,10 +204,9 @@ export const Checkout: React.FC = () => {
             setLoading(false);
             return;
         }
-        // Fallback for demo simulation if MP is not the provider
     }
 
-    // Default Simulation for Credit Card / Crypto / Demo
+    // Default Simulation for Credit Card / Crypto
     if (selectedMethod === 'CREDIT_CARD') {
         if (!cardData.number || !cardData.cvv) {
             addToast('Preencha os dados do cartão', 'error');
