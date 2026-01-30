@@ -50,9 +50,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [gateways, setGateways] = useState<PaymentGateway[]>([]);
   const [settings, setSettings] = useState<SystemSettings>({ supportWhatsapp: '' });
   
+  // Safe initialization from localStorage to prevent White Screen of Death
   const [user, setUser] = useState<User | null>(() => {
-      const savedSession = localStorage.getItem('fp_current_user');
-      return savedSession ? JSON.parse(savedSession) : null;
+      try {
+          const savedSession = localStorage.getItem('fp_current_user');
+          return savedSession ? JSON.parse(savedSession) : null;
+      } catch (error) {
+          console.error("Error parsing user session:", error);
+          localStorage.removeItem('fp_current_user'); // Clear corrupted data
+          return null;
+      }
   });
 
   // --- DATA LOADING ---
@@ -337,6 +344,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateUser = async (updatedUser: User) => {
+    // FIX: Explicitly set undefined fields to null to ensure DB clears them (important for deleting plans)
     const dbUser = {
         name: updatedUser.name,
         email: updatedUser.email,
@@ -345,17 +353,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: updatedUser.role,
         password: updatedUser.password,
         is_affiliate: updatedUser.isAffiliate,
-        affiliate_code: updatedUser.affiliateCode,
-        affiliate_status: updatedUser.affiliateStatus,
-        affiliate_commission_override: updatedUser.affiliateCommissionOverride,
-        subscription: updatedUser.subscription,
-        bank_details: updatedUser.bankDetails
+        affiliate_code: updatedUser.affiliateCode === undefined ? null : updatedUser.affiliateCode,
+        affiliate_status: updatedUser.affiliateStatus === undefined ? null : updatedUser.affiliateStatus,
+        affiliate_commission_override: updatedUser.affiliateCommissionOverride === undefined ? null : updatedUser.affiliateCommissionOverride,
+        subscription: updatedUser.subscription === undefined ? null : updatedUser.subscription,
+        bank_details: updatedUser.bankDetails === undefined ? null : updatedUser.bankDetails
     };
 
     const { error } = await supabase.from('users').update(dbUser).eq('id', updatedUser.id);
     if (!error) {
         setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
         if (user && user.id === updatedUser.id) setUser(updatedUser);
+    } else {
+        console.error("Update user error:", error);
     }
   };
 
