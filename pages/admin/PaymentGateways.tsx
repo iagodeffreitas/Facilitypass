@@ -64,8 +64,8 @@ export const PaymentGateways: React.FC = () => {
     resetForm();
   };
 
-  const handleToggleStatus = (id: string) => {
-      const result = toggleGatewayStatus(id);
+  const handleToggleStatus = async (id: string) => {
+      const result = await toggleGatewayStatus(id);
       if (!result.success && result.message) {
           alert(result.message);
       }

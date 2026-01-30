@@ -1,17 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../../components/ui/Buttons';
 import { UserRole, User } from '../../types';
-import { Trash2, Edit2, Search, Shield, ShieldAlert, Eye, EyeOff, X, Phone, User as UserIcon, Save, Power, CreditCard } from 'lucide-react';
+import { Trash2, Edit2, Search, Shield, ShieldAlert, Eye, EyeOff, X, Phone, User as UserIcon, Save, Power, Calendar, Briefcase, AlertTriangle } from 'lucide-react';
 
 export const Members: React.FC = () => {
-  const { users, deleteUser, updateUser, user: currentUser } = useAuth();
+  const { users, deleteUser, updateUser, user: currentUser, plans } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Modal State
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // --- States for User Edit Modal (Personal Info) ---
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+
+  // --- States for Plan Management Modal (Subscription) ---
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [planTargetUser, setPlanTargetUser] = useState<User | null>(null);
+  const [planForm, setPlanForm] = useState({
+      planId: '',
+      active: true,
+      endDate: ''
+  });
 
   // Filter users based on search
   const filteredUsers = users.filter(u => 
@@ -20,65 +29,117 @@ export const Members: React.FC = () => {
     u.cpf.includes(searchTerm)
   );
 
-  // --- Handlers ---
+  // --- Handlers for Personal Info Edit ---
 
   const handleEditClick = (user: User) => {
-    setEditingUser({ ...user }); // Create a copy to edit
+    setEditingUser({ ...user }); 
     setShowPassword(false);
-    setIsModalOpen(true);
+    setIsEditModalOpen(true);
   };
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
+  const handleCloseEditModal = () => {
+    setIsEditModalOpen(false);
     setEditingUser(null);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSaveUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingUser) {
         updateUser(editingUser);
-        handleCloseModal();
+        handleCloseEditModal();
     }
   };
 
+  // --- Handlers for Plan Management ---
+
+  const handleOpenPlanModal = (user: User) => {
+      if (user.role !== UserRole.CLIENT) return;
+      
+      setPlanTargetUser(user);
+      
+      if (user.subscription) {
+          // Pre-fill with existing subscription data
+          setPlanForm({
+              planId: user.subscription.planId,
+              active: user.subscription.active,
+              endDate: user.subscription.endDate.split('T')[0] // Format for input date
+          });
+      } else {
+          // Default empty state
+          setPlanForm({
+              planId: '',
+              active: true,
+              endDate: ''
+          });
+      }
+      setIsPlanModalOpen(true);
+  };
+
+  const handleClosePlanModal = () => {
+      setIsPlanModalOpen(false);
+      setPlanTargetUser(null);
+  };
+
+  const handlePlanSelectionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const newPlanId = e.target.value;
+      const selectedPlan = plans.find(p => p.id === newPlanId);
+      
+      // Auto-calculate end date based on selected plan duration
+      let newEndDate = planForm.endDate;
+      if (selectedPlan) {
+          const date = new Date();
+          date.setMonth(date.getMonth() + selectedPlan.durationMonths);
+          newEndDate = date.toISOString().split('T')[0];
+      }
+
+      setPlanForm({
+          ...planForm,
+          planId: newPlanId,
+          endDate: newEndDate
+      });
+  };
+
+  const handleSavePlan = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!planTargetUser || !planForm.planId || !planForm.endDate) return;
+
+      const updatedUser = {
+          ...planTargetUser,
+          subscription: {
+              planId: planForm.planId,
+              active: planForm.active,
+              startDate: planTargetUser.subscription?.startDate || new Date().toISOString(),
+              endDate: new Date(planForm.endDate).toISOString()
+          }
+      };
+
+      updateUser(updatedUser);
+      handleClosePlanModal();
+      alert(`Plano de ${planTargetUser.name} atualizado com sucesso!`);
+  };
+
+  const handleDeletePlan = () => {
+      if (!planTargetUser) return;
+      if (window.confirm(`Tem certeza que deseja REMOVER totalmente o plano de ${planTargetUser.name}? Ele perderá o acesso imediatamente.`)) {
+          updateUser({ ...planTargetUser, subscription: undefined });
+          handleClosePlanModal();
+      }
+  };
+
+  // --- General Actions ---
+
   const toggleRole = (targetUser: User) => {
-      // Prevent removing own admin status
       if (currentUser?.id === targetUser.id) {
           alert("Você não pode alterar seu próprio nível de permissão.");
           return;
       }
-
       const newRole = targetUser.role === UserRole.ADMIN ? UserRole.CLIENT : UserRole.ADMIN;
-      const confirmMsg = newRole === UserRole.ADMIN 
-        ? `Tornar ${targetUser.name} um Administrador? Ele terá acesso total ao sistema.`
-        : `Remover acesso administrativo de ${targetUser.name}?`;
-
-      if (window.confirm(confirmMsg)) {
+      if (window.confirm(`Alterar permissão de ${targetUser.name}?`)) {
           updateUser({ ...targetUser, role: newRole });
       }
   };
 
-  const toggleSubscription = (targetUser: User) => {
-      if (!targetUser.subscription) {
-          alert("Este usuário não possui um plano vinculado para ativar/desativar.");
-          return;
-      }
-
-      const isActive = targetUser.subscription.active;
-      const action = isActive ? "desativar" : "ativar";
-      
-      if(window.confirm(`Tem certeza que deseja ${action} o plano de ${targetUser.name}?`)) {
-          updateUser({
-              ...targetUser,
-              subscription: {
-                  ...targetUser.subscription,
-                  active: !isActive
-              }
-          });
-      }
-  };
-
-  const handleDelete = (id: string) => {
+  const handleDeleteUser = (id: string) => {
       if (currentUser?.id === id) {
           alert("Você não pode excluir sua própria conta.");
           return;
@@ -125,7 +186,24 @@ export const Members: React.FC = () => {
                     </div>
                     <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                            <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{userItem.name}</p>
+                            {/* Clickable Name for Plan Management */}
+                            {userItem.role === UserRole.CLIENT ? (
+                                <button 
+                                    onClick={() => handleOpenPlanModal(userItem)}
+                                    className="text-left group focus:outline-none flex items-center gap-2"
+                                    title="Clique para gerenciar o plano"
+                                >
+                                    <p className="text-sm font-bold text-gray-900 dark:text-white truncate group-hover:text-brand-red group-hover:underline decoration-dotted underline-offset-4 transition-colors">
+                                        {userItem.name}
+                                    </p>
+                                    <Edit2 className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </button>
+                            ) : (
+                                <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                                    {userItem.name}
+                                </p>
+                            )}
+
                             {userItem.role === UserRole.ADMIN && (
                                 <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
                                     Admin
@@ -155,22 +233,6 @@ export const Members: React.FC = () => {
 
                 {/* Actions */}
                 <div className="flex items-center gap-2">
-                  
-                  {/* Toggle Subscription Button */}
-                  {userItem.role === UserRole.CLIENT && userItem.subscription && (
-                       <button
-                          onClick={() => toggleSubscription(userItem)}
-                          title={userItem.subscription.active ? "Desativar Plano" : "Ativar Plano"}
-                          className={`p-2 rounded-lg transition-colors ${
-                              userItem.subscription.active
-                              ? 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20'
-                              : 'text-gray-400 hover:text-green-600 hover:bg-gray-100 dark:hover:bg-zinc-800'
-                          }`}
-                       >
-                          <Power className="w-5 h-5" />
-                       </button>
-                  )}
-
                   <button 
                     onClick={() => toggleRole(userItem)}
                     title={userItem.role === UserRole.ADMIN ? "Remover Admin" : "Tornar Admin"}
@@ -185,14 +247,14 @@ export const Members: React.FC = () => {
 
                   <button 
                       onClick={() => handleEditClick(userItem)}
-                      title="Editar Dados Completos"
+                      title="Editar Dados Pessoais"
                       className="p-2 text-gray-400 hover:text-brand-red hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors"
                   >
-                      <Edit2 className="w-5 h-5" />
+                      <UserIcon className="w-5 h-5" />
                   </button>
                   
                   <button 
-                    onClick={() => handleDelete(userItem.id)}
+                    onClick={() => handleDeleteUser(userItem.id)}
                     title="Excluir Usuário"
                     className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors"
                   >
@@ -208,18 +270,118 @@ export const Members: React.FC = () => {
         </ul>
       </div>
 
-      {/* EDIT MODAL */}
-      {isModalOpen && editingUser && (
+      {/* --- MODAL 1: PLAN MANAGEMENT --- */}
+      {isPlanModalOpen && planTargetUser && (
+           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+               <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200 dark:border-zinc-800">
+                   <div className="flex justify-between items-center p-6 border-b border-gray-100 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-800/50">
+                        <div>
+                            <h3 className="text-xl font-bold flex items-center gap-2">
+                                <Briefcase className="w-5 h-5 text-brand-red"/>
+                                Gerenciar Assinatura
+                            </h3>
+                            <p className="text-sm text-gray-500">Cliente: {planTargetUser.name}</p>
+                        </div>
+                        <button onClick={handleClosePlanModal} className="text-gray-400 hover:text-gray-600">
+                            <X className="w-6 h-6"/>
+                        </button>
+                   </div>
+                   
+                   <form onSubmit={handleSavePlan} className="p-6 space-y-6">
+                        
+                        {/* Current Plan Info or Warning */}
+                        {!planTargetUser.subscription && (
+                            <div className="p-4 bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-900/30 rounded-lg text-sm text-yellow-800 dark:text-yellow-500 flex items-start gap-2">
+                                <AlertTriangle className="w-5 h-5 flex-shrink-0"/>
+                                <p>Este usuário não possui plano ativo. Selecione um plano abaixo para criar uma assinatura.</p>
+                            </div>
+                        )}
+
+                        <div>
+                            <label className="block text-sm font-medium mb-2">Selecionar Plano</label>
+                            <select 
+                                required
+                                className="w-full p-3 border rounded-lg dark:bg-zinc-800 dark:border-zinc-700 focus:ring-2 focus:ring-brand-red outline-none transition"
+                                value={planForm.planId}
+                                onChange={handlePlanSelectionChange}
+                            >
+                                <option value="">Selecione um plano...</option>
+                                {plans.map(p => (
+                                    <option key={p.id} value={p.id}>
+                                        {p.name} - R$ {p.price.toFixed(2)} ({p.durationMonths} meses)
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Vencimento da Assinatura</label>
+                                <div className="relative">
+                                    <Calendar className="w-4 h-4 absolute left-3 top-3.5 text-gray-400"/>
+                                    <input 
+                                        type="date"
+                                        required
+                                        className="w-full pl-10 p-3 border rounded-lg dark:bg-zinc-800 dark:border-zinc-700 focus:ring-2 focus:ring-brand-red outline-none"
+                                        value={planForm.endDate}
+                                        onChange={e => setPlanForm({...planForm, endDate: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Status do Acesso</label>
+                                <button 
+                                    type="button"
+                                    onClick={() => setPlanForm({...planForm, active: !planForm.active})}
+                                    className={`w-full p-3 rounded-lg border font-bold transition flex items-center justify-center gap-2 ${planForm.active ? 'bg-green-100 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800' : 'bg-red-50 border-red-200 text-red-600 dark:bg-red-900/10'}`}
+                                >
+                                    <Power className="w-4 h-4"/>
+                                    {planForm.active ? 'ATIVO' : 'BLOQUEADO'}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="pt-4 flex justify-between items-center border-t border-gray-100 dark:border-zinc-800">
+                            {planTargetUser.subscription ? (
+                                <button 
+                                    type="button" 
+                                    onClick={handleDeletePlan}
+                                    className="text-red-500 hover:text-red-700 text-sm flex items-center gap-1 font-medium px-2 py-1 hover:bg-red-50 dark:hover:bg-red-900/10 rounded transition"
+                                >
+                                    <Trash2 className="w-4 h-4"/> Excluir Plano
+                                </button>
+                            ) : (
+                                <div></div> 
+                            )}
+                            
+                            <div className="flex gap-3">
+                                <Button type="button" variant="outline" onClick={handleClosePlanModal}>
+                                    Cancelar
+                                </Button>
+                                <Button type="submit">
+                                    <Save className="w-4 h-4 mr-2"/>
+                                    {planTargetUser.subscription ? 'Salvar Alterações' : 'Criar Assinatura'}
+                                </Button>
+                            </div>
+                        </div>
+                   </form>
+               </div>
+           </div>
+      )}
+
+      {/* --- MODAL 2: PERSONAL INFO EDIT --- */}
+      {isEditModalOpen && editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
             <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200 dark:border-zinc-800">
                 <div className="flex justify-between items-center p-6 border-b border-gray-100 dark:border-zinc-800">
-                    <h3 className="text-xl font-bold">Editar Usuário</h3>
-                    <button onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <h3 className="text-xl font-bold">Editar Dados Pessoais</h3>
+                    <button onClick={handleCloseEditModal} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                         <X className="w-6 h-6"/>
                     </button>
                 </div>
                 
-                <form onSubmit={handleSave} className="p-6 space-y-4">
+                <form onSubmit={handleSaveUser} className="p-6 space-y-4">
                     {/* Role Toggle inside Modal */}
                     <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
                         <div className="flex items-center gap-3">
@@ -309,12 +471,12 @@ export const Members: React.FC = () => {
                     </div>
 
                     <div className="pt-4 flex justify-end gap-3">
-                        <Button type="button" variant="outline" onClick={handleCloseModal}>
+                        <Button type="button" variant="outline" onClick={handleCloseEditModal}>
                             Cancelar
                         </Button>
                         <Button type="submit">
                             <Save className="w-4 h-4 mr-2"/>
-                            Salvar Alterações
+                            Salvar Dados
                         </Button>
                     </div>
                 </form>
