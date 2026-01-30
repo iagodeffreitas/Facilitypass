@@ -337,7 +337,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateUser = async (updatedUser: User) => {
-    // IMPORTANT: Explicitly set missing optional fields to null to ensure they are cleared in the database
     const dbUser = {
         name: updatedUser.name,
         email: updatedUser.email,
@@ -346,11 +345,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: updatedUser.role,
         password: updatedUser.password,
         is_affiliate: updatedUser.isAffiliate,
-        affiliate_code: updatedUser.affiliateCode === undefined ? null : updatedUser.affiliateCode,
-        affiliate_status: updatedUser.affiliateStatus === undefined ? null : updatedUser.affiliateStatus,
-        affiliate_commission_override: updatedUser.affiliateCommissionOverride === undefined ? null : updatedUser.affiliateCommissionOverride,
-        subscription: updatedUser.subscription === undefined ? null : updatedUser.subscription,
-        bank_details: updatedUser.bankDetails === undefined ? null : updatedUser.bankDetails
+        affiliate_code: updatedUser.affiliateCode,
+        affiliate_status: updatedUser.affiliateStatus,
+        affiliate_commission_override: updatedUser.affiliateCommissionOverride,
+        subscription: updatedUser.subscription,
+        bank_details: updatedUser.bankDetails
     };
 
     const { error } = await supabase.from('users').update(dbUser).eq('id', updatedUser.id);
